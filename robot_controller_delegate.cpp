@@ -5,9 +5,7 @@
  * 
  * @author: t-tang-rfc
  * 
- * @date:
- * - created on 2025-05-26
- * - updated on 2025-05-28
+ * @date: [created: 2025-05-26, updated: 2025-05-28]
  **/
 
 #include "robot_controller_delegate.hpp"
@@ -16,7 +14,7 @@
 
 namespace rf {
 
-const QList<qreal> DEFAULT_POSE = { -100, 100, -100, 0, 0, 0 };
+const QList<float> DEFAULT_POSE = { -100, 100, -100, 0, 0, 0 };
 
 }
 
@@ -31,13 +29,13 @@ RobotControllerDelegate::RobotControllerDelegate(QObject *parent)
 
 RobotControllerDelegate::~RobotControllerDelegate() = default;
 
-QList<qreal> RobotControllerDelegate::getPose() const { return pose_; }
+QList<float> RobotControllerDelegate::getPose() const { return pose_; }
 
-void RobotControllerDelegate::setPose(const QList<qreal>& pose)
+void RobotControllerDelegate::setPose(QList<float> pose)
 {
 	if (pose_ != pose) {
 		pose_ = pose;
-		emit poseChanged();
+		Q_EMIT poseChanged();
 	}
 }
 

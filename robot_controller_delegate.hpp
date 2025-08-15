@@ -10,9 +10,7 @@
  * - see https://doc.qt.io/qt-6/qqmlintegration-h-qtqml-proxy.html for the macro definitions
  * - see https://doc.qt.io/qt-6/qtqml-cppintegration-definetypes.html which says if you are already linking to QtQml, you can use `qqmlregistration.h` which includes the necessary headers
  *
- * @date:
- * - created on 2025-05-26
- * - updated on 2025-05-31
+ * @date: [created: 2025-05-26, updated: 2025-05-31]
  **/
 
 #ifndef ROBOT_CONTROLLER_DELEGATE_HPP
@@ -29,21 +27,21 @@ class RobotControllerDelegate : public QObject
 {
 	Q_OBJECT
 	QML_ELEMENT
-	Q_PROPERTY(QList<qreal> pose READ getPose WRITE setPose NOTIFY poseChanged)
+	Q_PROPERTY(QList<float> pose READ getPose WRITE setPose NOTIFY poseChanged)
 
 	public:
 		explicit RobotControllerDelegate(QObject *parent = nullptr);
 		~RobotControllerDelegate();
 
-		QList<qreal> getPose() const;
+		QList<float> getPose() const;
 
-		Q_SLOT void setPose(const QList<qreal>& pose);
+		Q_SLOT void setPose(QList<float> pose);
 		Q_SLOT void reset();
 
 		Q_SIGNAL void poseChanged();
 
 	private:
-		QList<qreal> pose_;
+		QList<float> pose_;
 };
 
 } // namespace rf

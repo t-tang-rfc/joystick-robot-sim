@@ -5,15 +5,14 @@
  * 
  * @author: t-tang-rfc
  * 
- * @date:
- * - created on 2025-05-22
- * - updated on 2025-05-31
+ * @date: [created: 2025-05-22, updated: 2025-05-31]
  **/
 
 #include "main_window.hpp"
 
 #include <QQuickItem>
 #include <QtLogging>
+#include <QDebug>
 
 #include "robot_controller_delegate.hpp"
 
@@ -56,43 +55,12 @@ MainWindow::~MainWindow() = default;
 void MainWindow::keyPressEvent(QKeyEvent* event)
 {
 	switch (event->key()) {
-		case Qt::Key_W:
-			moveX(KBD_MOVE_STEP);
-			break;
-		case Qt::Key_S:
-			moveX(-KBD_MOVE_STEP);
-			break;
-		case Qt::Key_A:
-			moveZ(-KBD_MOVE_STEP);
-			break;
-		case Qt::Key_D:
-			moveZ(KBD_MOVE_STEP);
-			break;
-		case Qt::Key_Up:
-			moveY(KBD_MOVE_STEP);
-			break;
-		case Qt::Key_Down:
-			moveY(-KBD_MOVE_STEP);
-			break;
+		// @todo: May add reset function later, for now print a message
 		default:
+			qDebug() << "Key pressed:" << event->key();
 			QQuickView::keyPressEvent(event);
 			break;
 	}
-}
-
-void MainWindow::moveX(qreal delta_x) {
-	robot_pose_[0] += delta_x;
-	emit setPose(robot_pose_);
-}
-
-void MainWindow::moveY(qreal delta_y) {
-	robot_pose_[1] += delta_y;
-	emit setPose(robot_pose_);
-}
-
-void MainWindow::moveZ(qreal delta_z) {
-	robot_pose_[2] += delta_z;
-	emit setPose(robot_pose_);
 }
 
 } // namespace rf
