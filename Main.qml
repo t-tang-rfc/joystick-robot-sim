@@ -1,20 +1,39 @@
+/**
+ * @file Display.qml
+ * @brief A simple 3D scene with a stick and axes to visualize the robot's pose.
+ * @author: t-tang-rfc
+ * @date:
+ * - created on 2025-05-22
+ * - updated on 2025-05-31
+ * @note: Coordinates frame of the 3D world is:
+ * - the positive direction of the x axis is to the right
+ * - positive y points upwards
+ * - and positive z out of the screen.
+ * @see: https://www.qt.io/product/qt6/qml-book/ch12-qtquick3d-basics
+ **/
+
 import QtQuick
 import QtQuick3D
 import QtQuick3D.Helpers
-// @note: Coordinates frame of the 3D world is:
-// - the positive direction of the x axis is to the right
-// - positive y points upwards
-// - and positive z out of the screen.
-// @see: https://www.qt.io/product/qt6/qml-book/ch12-qtquick3d-basics
+import RobotSimulator
 
 View3D {
 	id: viewport
+
 	anchors.fill: parent
 	camera: camera_node
 
 	environment: SceneEnvironment {
 		clearColor: "skyblue"
 		backgroundMode: SceneEnvironment.Color
+	}
+
+	RobotControllerDelegate {
+		id: controller
+		objectName: "controller"
+		// @brief: The controller delegate is responsible for updating the pose of the stick, and it is  implemented in C++ and registered as a QML type.
+		// @details: The pose is an array of 6 elements: [posX, posY, posZ, rotX, rotY, rotZ].
+		// @note: objectName is used to access the controller from C++ code.
 	}
 
 	DirectionalLight {
@@ -131,16 +150,10 @@ View3D {
 		id: robot_stick
 
 		readonly property real mesh_sz_: 100
-		// These properties will be controlled by the C++ controller
-		property real pos_x_: -100
-		property real pos_y_: 100
-		property real pos_z_: -100
-		property real rot_x_: 0
-		property real rot_y_: 0
-		property real rot_z_: 0
-		
-		position: Qt.vector3d(robot_stick.pos_x_, robot_stick.pos_y_, robot_stick.pos_z_)
-		eulerRotation: Qt.vector3d(robot_stick.rot_x_, robot_stick.rot_y_, robot_stick.rot_z_)
+		property var pose: controller.pose
+
+		position: Qt.vector3d(pose[0], pose[1], pose[2])
+		eulerRotation: Qt.vector3d(pose[3], pose[4], pose[5])
 
 		Node {
 			id: stick

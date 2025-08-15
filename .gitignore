@@ -8,6 +8,9 @@ tmp*
 .vscode/
 .cspell/
 
+# QML auto generated files
+.qmlls.ini
+
 # Build artifacts
 build/
 
