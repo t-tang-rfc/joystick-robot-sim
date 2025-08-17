@@ -5,14 +5,13 @@
  * 
  * @author: t-tang-rfc
  * 
- * @date: [created: 2025-05-22, updated: 2025-05-31]
+ * @date: [created: 2025-05-22, updated: 2025-08-17]
  **/
 
 #include "main_window.hpp"
 
 #include <QQuickItem>
 #include <QtLogging>
-#include <QDebug>
 
 #include "robot_controller_delegate.hpp"
 
@@ -25,8 +24,7 @@ const int WINDOW_HEIGHT = 810; // Default height of the display window
 
 namespace rf {
 
-MainWindow::MainWindow(QWindow* parent)
-	: QQuickView(parent), robot_pose_({0, 0, 0, 0, 0, 0})
+MainWindow::MainWindow(QWindow* parent) : QQuickView(parent)
 {
 	setTitle("Display Main Window");
 	setWidth(WINDOW_WIDTH);
@@ -39,11 +37,9 @@ MainWindow::MainWindow(QWindow* parent)
 	// Retrieve the controller delegate from the QML
 	auto controller_delegate = rootObject()->findChild<RobotControllerDelegate*>("controller");
 	if (controller_delegate) {
-		// Set initial pose values
-		robot_pose_ = controller_delegate->getPose();
 
 		// Connect signals to controller slots
-		connect(this, &MainWindow::setPose, controller_delegate, &RobotControllerDelegate::setPose);
+		// connect(this, &MainWindow::setPose, controller_delegate, &RobotControllerDelegate::setPose);
 	} else {
 		qWarning() << "Controller delegate not retrieved from QML. You will NOT be able to control the robot.";
 	}

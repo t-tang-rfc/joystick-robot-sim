@@ -1,17 +1,14 @@
 cmake_minimum_required(VERSION 3.16)
 project(joystick-robot-sim)
 
-## Compile as C++11, supported in ROS Kinetic and newer
-# add_compile_options(-std=c++11)
-
-## Find catkin macros and libraries
-## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
-## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
 	joy
 	roscpp
 	std_msgs
 )
+
+# Find Eigen3
+find_package(Eigen3 REQUIRED)
 
 # @note: adjust the path to your Qt installation, or use symbolic link if necessary
 list(APPEND CMAKE_PREFIX_PATH "/opt/qt/Qt-6.8.2")
@@ -25,10 +22,6 @@ find_package(Qt6 REQUIRED COMPONENTS
 
 qt_standard_project_setup(REQUIRES 6.8)
 add_definitions(-DQT_NO_KEYWORDS)
-
-## System dependencies are found with CMake's conventions
-# find_package(Boost REQUIRED COMPONENTS system)
-
 
 ## Uncomment this if the package has a setup.py. This macro ensures
 ## modules and global scripts declared therein get installed
@@ -139,6 +132,7 @@ target_link_libraries(simulation_node PRIVATE
 	Qt6::Quick
 	Qt6::Quick3D
 	${catkin_LIBRARIES}
+	Eigen3::Eigen
 )
 
 qt_add_qml_module(simulation_node
@@ -156,6 +150,7 @@ qt_add_qml_module(simulation_node
 ## Your package locations should be listed before other locations
 target_include_directories(simulation_node PRIVATE
 	${catkin_INCLUDE_DIRS}
+	${EIGEN3_INCLUDE_DIR}
 )
 
 ## Declare a C++ library

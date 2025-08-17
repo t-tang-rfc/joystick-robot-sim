@@ -5,7 +5,7 @@
  * 
  * @author: t-tang-rfc
  *
- * @date: [created: 2025-05-22, updated: 2025-06-06]
+ * @date: [created: 2025-05-22, updated: 2025-08-17]
  **/
 
 #ifndef MAIN_WINDOW_HPP
@@ -30,8 +30,6 @@ class MainWindow : public QQuickView
 	protected:
 		void keyPressEvent(QKeyEvent* event) override;
 
-	private:
-		QList<float> robot_pose_; // a 6-element list for robot pose tracking
 };
 
 } // namespace rf

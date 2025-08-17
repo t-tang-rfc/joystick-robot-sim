@@ -33,8 +33,8 @@ View3D {
 	RobotControllerDelegate {
 		id: controller
 		objectName: "controller"
-		// @brief: The controller delegate is responsible for updating the pose of the stick, and it is  implemented in C++ and registered as a QML type.
-		// @details: The pose is an array of 6 elements: [posX, posY, posZ, rotZ, rotY, rotX].
+		// @brief: The controller delegate is responsible for updating the pose of the stick, and it is implemented in C++ and registered as a QML type.
+		// @details: The pose is internally stored as a 4x4 homogeneous transformation matrix, with translation and rotation exposed as Qt properties for rendering.
 		// @note: objectName is used to access the controller from C++ code.
 	}
 
@@ -152,10 +152,9 @@ View3D {
 		id: robot_stick
 
 		readonly property real mesh_sz_: 100
-		property var pose: controller.pose
-
-		position: Qt.vector3d(pose[0], pose[1], pose[2])
-		eulerRotation: Qt.vector3d(pose[3], pose[4], pose[5])
+		
+		position: controller.translation
+		rotation: controller.rotation
 
 		Node {
 			id: stick
