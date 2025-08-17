@@ -30,7 +30,7 @@ int main(int argc, char *argv[])
 		&w, &rf::MainWindow::setPose, Qt::QueuedConnection);
 
 	// --- [6] Show MainWindow scene ---
-	w.show();
+	w.showFullScreen();
 
 	// --- [7] Enter main event loop (both ROS and Qt now running) ---
 	return app.exec();

@@ -18,7 +18,6 @@
 
 namespace {
 
-const qreal KBD_MOVE_STEP = 5.0; // Default movement step size via keyboard control
 const int WINDOW_WIDTH = 1440; // Default width of the display window
 const int WINDOW_HEIGHT = 810; // Default height of the display window
 

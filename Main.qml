@@ -3,11 +3,15 @@
  * @brief A simple 3D scene with a stick and axes to visualize the robot's pose.
  * @author: t-tang-rfc
  * @date: [created: 2025-05-22, updated: 2025-05-31]
- * @note: Coordinates frame of the 3D world is:
+ * @note:
+ * Coordinates frame of the 3D world is:
  * - the positive direction of the x axis is to the right
  * - positive y points upwards
  * - and positive z out of the screen.
- * @see: https://www.qt.io/product/qt6/qml-book/ch12-qtquick3d-basics
+ * The Euler Angle Rotation convention is *ZXY*.
+ * @see:
+ * - https://www.qt.io/product/qt6/qml-book/ch12-qtquick3d-basics
+ * - https://doc.qt.io/qt-6/qml-qtquick3d-node.html#eulerRotation-prop
  **/
 
 import QtQuick
@@ -30,7 +34,7 @@ View3D {
 		id: controller
 		objectName: "controller"
 		// @brief: The controller delegate is responsible for updating the pose of the stick, and it is  implemented in C++ and registered as a QML type.
-		// @details: The pose is an array of 6 elements: [posX, posY, posZ, rotX, rotY, rotZ].
+		// @details: The pose is an array of 6 elements: [posX, posY, posZ, rotZ, rotY, rotX].
 		// @note: objectName is used to access the controller from C++ code.
 	}
 
