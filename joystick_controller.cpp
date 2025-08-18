@@ -18,7 +18,7 @@
 
 namespace {
 
-const float ROT_VEL_THRESH = 0.02; // [rad/s]
+const float ROT_VEL_THRESH = 0.04; // [rad/s]
 
 }
 
@@ -29,13 +29,16 @@ JoystickController::JoystickController(QObject* parent)
 	, throttle_(0.0)
 	, xdd_(0.0)
 	, xd_(0.0)
-	, torque_(0.0) // Initialize roll torque
-	, rdd_(0.0) // Initialize roll angular acceleration
-	, rd_(0.0) // Initialize roll angular velocity
-	, r_(0.0) // Initialize roll angle
+	, roll_torque_(0.0)
+	, roll_dd_(0.0)
+	, roll_d_(0.0)
 	, yaw_torque_(0.0)
 	, yaw_dd_(0.0)
 	, yaw_d_(0.0)
+	, yaw_inertia_(1.0)
+	, roll_max_torque_(3.0)
+	, roll_static_friction_(2.0)
+	, roll_2nd_friction_k_(0.8)   // 2nd order dynamic friction factor
 	, pitch_ref_(0.0) // Initialize pitch reference
 	, pitch_(0.0) // Initialize pitch angle
 	, pitch_rate_(0.0) // Initialize pitch rate
@@ -45,12 +48,8 @@ JoystickController::JoystickController(QObject* parent)
 	, max_thrust_(12.0)
 	, static_drag_(4.0)
 	, quadratic_drag_k_(0.5)
-	, roll_inertia_(0.01) // Roll inertia (around longitudinal axis): I = (1/2) * m * r^2, where r=20cm
+	, roll_inertia_(0.5) // Roll inertia: still smaller than yaw but more reasonable
 	, pitch_inertia_(1.2)
-	, yaw_inertia_(1.0)
-	, max_roll_torque_(5.0) // Maximum roll torque, [N*m]
-	, static_friction_(2.0) // Static rotational friction, [N*m]
-	, quadratic_friction_k_(0.3) // Dynamic rotational friction parameter, [N*m/(rad/s)^2]
 	, max_yaw_torque_(5.0)
 	, yaw_static_friction_(2.0)
 	, yaw_quadratic_friction_k_(1.0)
@@ -70,7 +69,7 @@ JoystickController::JoystickController(QObject* parent)
 			  << ", Static drag: " << static_drag_ << " N"
 			  << ", Quadratic drag k: " << quadratic_drag_k_ << " N/(m/s)^2"
 			  << ", Roll inertia: " << roll_inertia_ << " kg*m^2"
-			  << ", Max roll torque: " << max_roll_torque_ << " N*m"
+			  << ", Max roll torque: " << roll_max_torque_ << " N*m"
 			  << ", Static friction: " << static_friction_ << " N*m"
 			  << ", Quadratic friction k: " << quadratic_friction_k_ << " N*m/(rad/s)^2"
 			  << ", Max yaw torque: " << max_yaw_torque_ << " N*m"
@@ -96,11 +95,11 @@ void JoystickController::joyCallback(const sensor_msgs::Joy::ConstPtr& msg)
 	// Forward/backward throttle: right bumper (forward/reverse) + left trigger (throttle amount)
 	throttle_ = (right_bumper_val < 1 ? 1.0 : -1.0) * (1.0 - left_trigger_val) * 0.5;
 
-	// Roll torque control: left bumper (roll direction) + right trigger (torque amount)
-	float roll_throttle = (left_bumper_val < 1 ? 1.0 : -1.0) * (1.0 - right_trigger_val) * 0.5;
-	torque_ = roll_throttle * max_roll_torque_; // Roll torque, [N*m]
+	// [1] Roll torque control: left bumper (roll direction) + right trigger (torque amount)
+	float roll_input = (left_bumper_val < 1 ? 1.0 : -1.0) * (1.0 - right_trigger_val) * 0.5;
+	roll_torque_ = roll_input * roll_max_torque_; // Roll torque, [N*m]
 
-	// Yaw torque control: left stick horizontal (positive = counter-clockwise around Z-axis)
+	// [3] Yaw torque control: left stick horizontal
 	float yaw_input = deadzone(left_stick_hoz, 0.05);
 	yaw_torque_ = yaw_input * max_yaw_torque_; // Yaw torque, [N*m]	
 
@@ -138,21 +137,44 @@ void JoystickController::updateModel(const ros::TimerEvent& event)
 	// Compute & Update instant acceleration
 	xdd_ = (F_mot + f_static + f_dynamic) / mode_mass_; // [m/s^2]
 
-	// [3] Update roll dynamics (physics-based model)
+	// [1] Update roll dynamics (physics-based model)
 	
 	// Compute current angular velocity by the *last* angular acceleration
-	float ang_vel_r = rd_ + rdd_ * dt_; // [rad/s]
+	float roll_vel = roll_d_ + roll_dd_ * dt_; // [rad/s]
 	// Update angular velocity
-	rd_ = ang_vel_r;
+	roll_d_ = roll_vel;
 
-	// Compute static rotational friction
-	float f_static_rot = (sign(rd_) == 0.0) ? clamp(-torque_, -static_friction_, static_friction_) : (-sign(rd_) * static_friction_);
+	// Compute friction forces (corrected physics with numerical stability)
+	float roll_friction = 0.0f;
+	if (std::abs(roll_d_) < ROT_VEL_THRESH && std::abs(roll_torque_) < roll_static_friction_) {
+		// Static friction region: opposes applied torque and damps velocity
+		roll_friction = clamp(-roll_torque_, -roll_static_friction_, roll_static_friction_);
+		// Add velocity damping to eliminate numerical oscillations
+		roll_friction -= roll_d_ * (roll_static_friction_ / ROT_VEL_THRESH); // Strong damping near zero
 
-	// Compute dynamic rotational friction
-	float f_dynamic_rot = -sign(rd_) * (std::pow(std::abs(rd_), 2) * quadratic_friction_k_);
+		// If the total force would cause velocity to overshoot zero, clamp it
+		float predicted_roll_vel = roll_d_ + (roll_torque_ + roll_friction) / roll_inertia_ * dt_;
+		if (roll_d_ * predicted_roll_vel < 0) { // Velocity would change sign
+			// Apply exact force needed to bring velocity to zero
+			roll_friction = -roll_torque_ - roll_d_ * roll_inertia_ / dt_;
+		}
+	} else {
+		// Kinetic friction: always opposes motion, magnitude depends on velocity
+		float coulomb_friction = roll_static_friction_ * 0.8; // Kinetic < static typically
+		roll_friction = -sign(roll_d_) * coulomb_friction - sign(roll_d_) * std::pow(std::abs(roll_d_), 2) * roll_2nd_friction_k_;
+	}
+
+	// DEBUG: Print roll dynamics (only when stick is used or velocity is significant)
+	if (std::abs(roll_torque_) > 0.1 || std::abs(roll_d_) > 0.01) {
+		std::cout << "ROLL DEBUG: torque=" << roll_torque_ 
+		          << ", vel=" << roll_d_ 
+		          << ", f_friction=" << roll_friction 
+		          << ", total_force=" << (roll_torque_ + roll_friction)
+		          << ", accel=" << (roll_torque_ + roll_friction) / roll_inertia_ << std::endl;
+	}
 
 	// Compute & Update instant angular acceleration
-	rdd_ = (torque_ + f_static_rot + f_dynamic_rot) / roll_inertia_; // [rad/s^2] - using roll inertia
+	roll_dd_ = (roll_torque_ + roll_friction) / roll_inertia_; // [rad/s^2] - using roll inertia
 
 	// [3] Update yaw dynamics (physics-based model)
 	
@@ -163,7 +185,6 @@ void JoystickController::updateModel(const ros::TimerEvent& event)
 
 	// Compute friction forces (corrected physics with numerical stability)
 	float f_friction_yaw = 0.0f;
-	
 	if (std::abs(yaw_d_) < ROT_VEL_THRESH && std::abs(yaw_torque_) < yaw_static_friction_) {
 		// Static friction region: opposes applied torque and damps velocity
 		f_friction_yaw = clamp(-yaw_torque_, -yaw_static_friction_, yaw_static_friction_);
@@ -206,20 +227,20 @@ void JoystickController::updateModel(const ros::TimerEvent& event)
 	// 6a) Translate along local +X by velocity increment (not absolute position!)
 	// float delta_x = xd_ * dt_; // Incremental displacement this timestep
 	// step(0, 3) = delta_x;
-
+	pitch_rate_ = 0;
 	// 6b) Apply incremental rotations (using angular velocities, not absolute angles)
-	float delta_roll = rd_ * dt_;     // Incremental roll rotation
-	float delta_yaw = yaw_d_ * dt_;      // Incremental yaw rotation (physics-based)  
+	float delta_roll = roll_d_ * dt_;     // Incremental roll rotation
 	float delta_pitch = pitch_rate_ * dt_; // Incremental pitch rotation
+	float delta_yaw = yaw_d_ * dt_;      // Incremental yaw rotation (physics-based)	
 
 	// Create rotation matrices for each axis
-	// Eigen::Matrix3f R_roll = Eigen::AngleAxisf(delta_roll, Eigen::Vector3f::UnitX()).toRotationMatrix();
+	Eigen::Matrix3f R_roll = Eigen::AngleAxisf(delta_roll, Eigen::Vector3f::UnitX()).toRotationMatrix();
+	Eigen::Matrix3f R_pitch = Eigen::AngleAxisf(delta_pitch, Eigen::Vector3f::UnitZ()).toRotationMatrix();
 	Eigen::Matrix3f R_yaw = Eigen::AngleAxisf(delta_yaw, Eigen::Vector3f::UnitY()).toRotationMatrix();
-	// Eigen::Matrix3f R_pitch = Eigen::AngleAxisf(delta_pitch, Eigen::Vector3f::UnitY()).toRotationMatrix();
 
 	// Combine rotations (order: yaw * pitch * roll for proper composition)
-	// Eigen::Matrix3f R_combined = R_yaw * R_pitch * R_roll;
-	step.block<3,3>(0, 0) = R_yaw;
+	Eigen::Matrix3f R_combined = R_yaw * R_pitch * R_roll;
+	step.block<3,3>(0, 0) = R_roll;
 
 	// [7] Emit the instantaneous transformation to the delegate, will handle pose accumulation
 	Q_EMIT applyTransform(step);
