@@ -14,11 +14,11 @@
 
 #include "joystick_controller.hpp"
 #include <cmath>
-#include <iostream>
 
 namespace {
 
-const float ROT_VEL_THRESH = 0.04; // [rad/s]
+const float ROT_VEL_THRESH = 0.04f; // [rad/s]
+const float LIN_VEL_THRESH = 0.02f; // [m/s]
 
 }
 
@@ -26,9 +26,6 @@ namespace rf {
 
 JoystickController::JoystickController(QObject* parent)
 	: QObject(parent)
-	, throttle_(0.0)
-	, xdd_(0.0)
-	, xd_(0.0)
 	, roll_max_torque_(3.0)
 	, roll_torque_(0.0)
 	, roll_inertia_(0.5)
@@ -50,12 +47,13 @@ JoystickController::JoystickController(QObject* parent)
 	, yaw_2nd_friction_k_(1.0)
 	, yaw_dd_(0.0)
 	, yaw_d_(0.0)
-	, mode_volume_(M_PI * (20.0 * 20.0) * 160.0) // V = π * r^2 * h, r = 20 cm, h = 160 cm
-	, mode_density_(0.01) // Density in g/cm^3
-	, mode_mass_(mode_volume_ * mode_density_ * 0.001) // Convert to kg
-	, max_thrust_(12.0)
-	, static_drag_(4.0)
-	, quadratic_drag_k_(0.5)
+	, x_max_force_(12.0)
+	, x_force_(0.0)
+	, x_mode_mass_(2.0)
+	, x_static_friction_(4.0)
+	, x_2nd_friction_k_(0.5)
+	, x_dd_(0.0)
+	, x_d_(0.0)
 	, dt_(1.0 / 50.0)
 	, nh_(ros::NodeHandle())
 	, joy_sub_(nh_.subscribe("joy", 10, &JoystickController::joyCallback, this))
@@ -66,14 +64,13 @@ JoystickController::~JoystickController() = default;
 
 void JoystickController::joyCallback(const sensor_msgs::Joy::ConstPtr& msg)
 {
-	// [1] Read joystick control
-	float left_stick_hoz = msg->axes[0]; // suppose from Left stick horizontal axis
-	float left_stick_vet = msg->axes[1]; // suppose from Left stick vertical axis
-	float right_stick_vet = msg->axes[5]; // suppose from Right stick vertical axis
-	float left_trigger_val = msg->axes[3]; // suppose from L2
-	int right_bumper_val = msg->buttons[5]; // suppose from R1
+	// [0] Read joystick control
 	float right_trigger_val = msg->axes[4]; // suppose from R2
-	int left_bumper_val = msg->buttons[4]; // suppose from L1
+	int left_bumper_val = msg->buttons[4];  // suppose from L1
+	float left_trigger_val = msg->axes[3];  // suppose from L2
+	int right_bumper_val = msg->buttons[5]; // suppose from R1
+	float left_stick_hoz = msg->axes[0];    // suppose from Left stick horizontal axis
+	float right_stick_vet = msg->axes[5];   // suppose from Right stick vertical axis
 
 	// [1] Roll torque control: left bumper (roll direction) + right trigger (torque amount)
 	float roll_input = (left_bumper_val < 1 ? 1.0 : -1.0) * (1.0 - right_trigger_val) * 0.5;
@@ -88,37 +85,14 @@ void JoystickController::joyCallback(const sensor_msgs::Joy::ConstPtr& msg)
 	yaw_torque_ = yaw_input * yaw_max_torque_; // Yaw torque [N*m]
 
 	// [4] Translation force control: right stick vertical
-	throttle_ = (right_bumper_val < 1 ? 1.0 : -1.0) * (1.0 - left_trigger_val) * 0.5;	
-
+	float x_input = deadzone(right_stick_vet, 0.05);
+	x_force_ = x_input * x_max_force_; // Translation force, [N]
 }
 
 void JoystickController::updateModel(const ros::TimerEvent& event)
 {
 	// [0] Build incremental transform for this timestep
 	Eigen::Matrix4f step = Eigen::Matrix4f::Identity();
-	
-	// --- Update state ---
-
-	// [1] Update linear motion dynamics (in local coordinates)
-
-	// Compute current velocity by the *last* acceleration
-	float vel_x = xd_ + xdd_ * dt_; // [m/s]
-	// Update velocity
-	xd_ = vel_x;
-
-	// [2] Update physics-based linear motion
-
-	// Compute motor force
-	float F_mot = throttle_ * max_thrust_; // Motor force, [N]
-
-	// Compute static friction
-	float f_static = (sign(xd_) == 0.0) ? clamp(-F_mot, -static_drag_, static_drag_) : (-sign(xd_) * static_drag_);
-
-	// Compute dynamic friction
-	float f_dynamic = -sign(xd_) * (std::pow(std::abs(xd_), 2) * quadratic_drag_k_);
-
-	// Compute & Update instant acceleration
-	xdd_ = (F_mot + f_static + f_dynamic) / mode_mass_; // [m/s^2]
 
 	// [1] Update roll dynamics (physics-based model)
 	
@@ -210,24 +184,55 @@ void JoystickController::updateModel(const ros::TimerEvent& event)
 	// Compute & Update instant yaw angular acceleration
 	yaw_dd_ = (yaw_torque_ + f_friction_yaw) / yaw_inertia_;
 
-	// 6a) Translate along local +X by velocity increment (not absolute position!)
-	// float delta_x = xd_ * dt_; // Incremental displacement this timestep
-	// step(0, 3) = delta_x;
-	// 6b) Apply incremental rotations (using angular velocities, not absolute angles)
+	// [4] Update linear motion dynamics (physics-based model)
+
+	// Compute current velocity by the *last* acceleration
+	float x_vel = x_d_ + x_dd_ * dt_; // [m/s]
+	// Update velocity
+	x_d_ = x_vel;
+
+	// Compute friction forces (same anti-drift strategy as rotational axes)
+	float x_friction = 0.0f;
+	if (std::abs(x_d_) < LIN_VEL_THRESH && std::abs(x_force_) < x_static_friction_) {
+		// Static friction region: opposes applied force and damps velocity
+		x_friction = clamp(-x_force_, -x_static_friction_, x_static_friction_);
+		// Add velocity damping to eliminate numerical oscillations and drift
+		x_friction -= x_d_ * (x_static_friction_ / LIN_VEL_THRESH); // Strong damping near zero
+		
+		// If the total force would cause velocity to overshoot zero, clamp it
+		float predicted_x_vel = x_d_ + (x_force_ + x_friction) / x_mode_mass_ * dt_;
+		if (x_d_ * predicted_x_vel < 0) { // Velocity would change sign
+			// Apply exact force needed to bring velocity to zero
+			x_friction = -x_force_ - x_d_ * x_mode_mass_ / dt_;
+		}
+	} else {
+		// Kinetic friction: always opposes motion, magnitude depends on velocity
+		float coulomb_friction = x_static_friction_ * 0.8; // Kinetic < static typically
+		x_friction = -sign(x_d_) * coulomb_friction - sign(x_d_) * std::pow(std::abs(x_d_), 2) * x_2nd_friction_k_;
+	}
+
+	// Compute & Update instant acceleration
+	x_dd_ = (x_force_ + x_friction) / x_mode_mass_; // [m/s^2]
+
+	// [5] Pack the transformation 
+	
+	// 5a) Apply incremental rotations (using angular velocities, not absolute angles)
 	float delta_roll = roll_d_ * dt_;     // Incremental roll rotation (physics-based)
 	float delta_pitch = pitch_d_ * dt_;   // Incremental pitch rotation (physics-based)
-	float delta_yaw = yaw_d_ * dt_;       // Incremental yaw rotation (physics-based)	
+	float delta_yaw = yaw_d_ * dt_;       // Incremental yaw rotation (physics-based)
 
-	// Create rotation matrices for each axis
 	Eigen::Matrix3f R_roll = Eigen::AngleAxisf(delta_roll, Eigen::Vector3f::UnitX()).toRotationMatrix();
 	Eigen::Matrix3f R_pitch = Eigen::AngleAxisf(delta_pitch, Eigen::Vector3f::UnitZ()).toRotationMatrix();
 	Eigen::Matrix3f R_yaw = Eigen::AngleAxisf(delta_yaw, Eigen::Vector3f::UnitY()).toRotationMatrix();
 
-	// Combine rotations (order: yaw * pitch * roll for proper composition)
-	Eigen::Matrix3f R_combined = R_yaw * R_pitch * R_roll;
-	step.block<3,3>(0, 0) = R_pitch;
+	step.block<3,3>(0, 0) = R_yaw * R_pitch * R_roll;
 
-	// [7] Emit the instantaneous transformation to the delegate, will handle pose accumulation
+	// 5b) Translate along local +X by velocity increment (heading direction)
+	float delta_x = x_d_ * dt_;           // Incremental translation
+
+	step(0, 3) = delta_x * 100;           // [m] to [cm] (for QML rendering)
+
+	// [6] Emit the instantaneous transformation to the delegate, will handle pose accumulation
 	Q_EMIT applyTransform(step);
 }
 

@@ -6,11 +6,10 @@
  * @author: t-tang-rfc
  * 
  * @details:
- * - Left trigger (LT) -- throttle, move along X axis, i.e., forward thrust
- * - Right bumpper (RB) -- 
- * - Right stick left/right -- move along Z axis, i.e., left/right movement
+ * - Right trigger -- roll (w/ left bumper for reverse)
+ * - Left trigger -- pitch (w/ right bumper for reverse)
  * - Left stick left/right -- yaw (stick left for yaw left)
- * - Right stick forward/backward -- pitch (stick forward for pitch up)
+ * - Right stick forward/backward -- translation in heading direction (stick forward for forward motion)
  * 
  * @date: [created: 2025-06-06, updated: 2025-08-18]
  **/
@@ -38,9 +37,7 @@ class JoystickController : public QObject
 
 	private:
 		// ---- Parameters ----
-		float throttle_;          // throttle value from joystick, [0, 1]
-		float xdd_;               // acceleration of the robot, [m/s^2]
-		float xd_;                // velocity of the robot, [m/s]
+		float dt_;                     // time step for the physics model, [s]
 		// Roll
 		float roll_max_torque_;        // maximum torque around roll axis [N*m]		
 		float roll_torque_;            // torque applied to roll [N*m]
@@ -53,10 +50,10 @@ class JoystickController : public QObject
 		float pitch_max_torque_;       // maximum torque around pitch axis [N*m]
 		float pitch_torque_;           // pitch torque [N*m]
 		float pitch_inertia_;          // moment of inertia of pitch axis [kg*m^2]		
-		float pitch_dd_;               // pitch angular acceleration [rad/s^2]
-		float pitch_d_;                // pitch angular velocity [rad/s]
 		float pitch_static_friction_;  // static pitch friction [N*m]
 		float pitch_2nd_friction_k_;   // dynamic pitch friction parameter [N*m/(rad/s)^2]
+		float pitch_dd_;               // pitch angular acceleration [rad/s^2]
+		float pitch_d_;                // pitch angular velocity [rad/s]		
 		// Yaw
 		float yaw_max_torque_;         // maximum torque around yaw axis [N*m]
 		float yaw_torque_;             // yaw torque [N*m]
@@ -65,19 +62,14 @@ class JoystickController : public QObject
 		float yaw_2nd_friction_k_;     // dynamic yaw friction parameter [N*m/(rad/s)^2]		
 		float yaw_dd_;                 // yaw angular acceleration [rad/s^2]
 		float yaw_d_;                  // yaw angular velocity [rad/s]
-
-		// --- Parameters ---
-		// @note: the object to be controlled is modeled as a rod stick, with longitudinal axis being the roll axis.
-		float mode_volume_;       // [cm^3]
-		float mode_density_;      // [g/cm^3]
-		float mode_mass_;         // [kg]
-		float max_thrust_;        // [N]
-		float static_drag_;       // static friction, [N]
-		float quadratic_drag_k_;  // dynamic friction parameter, [N/(m/s)^2]
-		
-		float static_friction_;   // static friction, [N]
-		float quadratic_friction_k_; // dynamic friction parameter, [N/(m/s)^2]
-		float dt_;                // time step for the physics model, [s]
+		// Translation
+		float x_max_force_;            // maximum linear force applied to the robot [N]
+		float x_force_;                // force applied to translate the robot [N]
+		float x_mode_mass_;            // mass of the robot [kg]
+		float x_static_friction_;      // static friction for translation [N]
+		float x_2nd_friction_k_;       // dynamic friction parameter [N/(m/s)^2]
+		float x_dd_;                   // acceleration of the robot, [m/s^2]
+		float x_d_;                    // velocity of the robot, [m/s]
 
 		// ---- ROS ----
 		ros::NodeHandle nh_;
