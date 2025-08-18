@@ -29,33 +29,33 @@ JoystickController::JoystickController(QObject* parent)
 	, throttle_(0.0)
 	, xdd_(0.0)
 	, xd_(0.0)
+	, roll_max_torque_(3.0)
 	, roll_torque_(0.0)
+	, roll_inertia_(0.5)
+	, roll_static_friction_(2.0)
+	, roll_2nd_friction_k_(0.8)
 	, roll_dd_(0.0)
-	, roll_d_(0.0)
-	, yaw_torque_(0.0)
-	, yaw_dd_(0.0)
-	, yaw_d_(0.0)
-	, yaw_inertia_(1.0)
-	, pitch_max_torque_(5.0)	
-	, pitch_inertia_(1.0)
+	, roll_d_(0.0)	
+	, pitch_max_torque_(5.0)
 	, pitch_torque_(0.0)
+	, pitch_inertia_(1.0)
+	, pitch_static_friction_(2.0)
+	, pitch_2nd_friction_k_(1.0)
 	, pitch_dd_(0.0)
 	, pitch_d_(0.0)
-	, pitch_static_friction_(2.0)
-	, pitch_2nd_friction_k_(1.0)	
-	, roll_max_torque_(3.0)
-	, roll_static_friction_(2.0)
-	, roll_2nd_friction_k_(0.8)   // 2nd order dynamic friction factor
+	, yaw_max_torque_(5.0)
+	, yaw_torque_(0.0)
+	, yaw_inertia_(1.0)
+	, yaw_static_friction_(2.0)
+	, yaw_2nd_friction_k_(1.0)
+	, yaw_dd_(0.0)
+	, yaw_d_(0.0)
 	, mode_volume_(M_PI * (20.0 * 20.0) * 160.0) // V = π * r^2 * h, r = 20 cm, h = 160 cm
 	, mode_density_(0.01) // Density in g/cm^3
 	, mode_mass_(mode_volume_ * mode_density_ * 0.001) // Convert to kg
 	, max_thrust_(12.0)
 	, static_drag_(4.0)
 	, quadratic_drag_k_(0.5)
-	, roll_inertia_(0.5) // Roll inertia: still smaller than yaw but more reasonable
-	, max_yaw_torque_(5.0)
-	, yaw_static_friction_(2.0)
-	, yaw_quadratic_friction_k_(1.0)
 	, dt_(1.0 / 50.0)
 	, nh_(ros::NodeHandle())
 	, joy_sub_(nh_.subscribe("joy", 10, &JoystickController::joyCallback, this))
@@ -74,10 +74,6 @@ void JoystickController::joyCallback(const sensor_msgs::Joy::ConstPtr& msg)
 	int right_bumper_val = msg->buttons[5]; // suppose from R1
 	float right_trigger_val = msg->axes[4]; // suppose from R2
 	int left_bumper_val = msg->buttons[4]; // suppose from L1
-	
-	// [2] Derive control values
-	// Forward/backward throttle: right bumper (forward/reverse) + left trigger (throttle amount)
-	throttle_ = (right_bumper_val < 1 ? 1.0 : -1.0) * (1.0 - left_trigger_val) * 0.5;
 
 	// [1] Roll torque control: left bumper (roll direction) + right trigger (torque amount)
 	float roll_input = (left_bumper_val < 1 ? 1.0 : -1.0) * (1.0 - right_trigger_val) * 0.5;
@@ -89,7 +85,10 @@ void JoystickController::joyCallback(const sensor_msgs::Joy::ConstPtr& msg)
 
 	// [3] Yaw torque control: left stick horizontal
 	float yaw_input = deadzone(left_stick_hoz, 0.05);
-	yaw_torque_ = yaw_input * max_yaw_torque_; // Yaw torque, [N*m]	
+	yaw_torque_ = yaw_input * yaw_max_torque_; // Yaw torque [N*m]
+
+	// [4] Translation force control: right stick vertical
+	throttle_ = (right_bumper_val < 1 ? 1.0 : -1.0) * (1.0 - left_trigger_val) * 0.5;	
 
 }
 
@@ -148,15 +147,6 @@ void JoystickController::updateModel(const ros::TimerEvent& event)
 		roll_friction = -sign(roll_d_) * coulomb_friction - sign(roll_d_) * std::pow(std::abs(roll_d_), 2) * roll_2nd_friction_k_;
 	}
 
-	// DEBUG: Print roll dynamics (only when stick is used or velocity is significant)
-	if (std::abs(roll_torque_) > 0.1 || std::abs(roll_d_) > 0.01) {
-		std::cout << "ROLL DEBUG: torque=" << roll_torque_ 
-		          << ", vel=" << roll_d_ 
-		          << ", f_friction=" << roll_friction 
-		          << ", total_force=" << (roll_torque_ + roll_friction)
-		          << ", accel=" << (roll_torque_ + roll_friction) / roll_inertia_ << std::endl;
-	}
-
 	// Compute & Update instant angular acceleration
 	roll_dd_ = (roll_torque_ + roll_friction) / roll_inertia_; // [rad/s^2] - using roll inertia
 
@@ -187,15 +177,6 @@ void JoystickController::updateModel(const ros::TimerEvent& event)
 		friction_pitch = -sign(pitch_d_) * coulomb_friction - sign(pitch_d_) * std::pow(std::abs(pitch_d_), 2) * pitch_2nd_friction_k_;
 	}
 
-	// DEBUG: Print pitch dynamics (only when stick is used or velocity is significant)
-	if (std::abs(pitch_torque_) > 0.1 || std::abs(pitch_d_) > 0.01) {
-		std::cout << "PITCH DEBUG: torque=" << pitch_torque_ 
-		          << ", vel=" << pitch_d_ 
-		          << ", f_friction=" << friction_pitch 
-		          << ", total_force=" << (pitch_torque_ + friction_pitch)
-		          << ", accel=" << (pitch_torque_ + friction_pitch) / pitch_inertia_ << std::endl;
-	}
-
 	// Compute & Update instant pitch angular acceleration
 	pitch_dd_ = (pitch_torque_ + friction_pitch) / pitch_inertia_; // [rad/s^2] - using pitch inertia	
 
@@ -223,16 +204,7 @@ void JoystickController::updateModel(const ros::TimerEvent& event)
 	} else {
 		// Kinetic friction: always opposes motion, magnitude depends on velocity
 		float coulomb_friction = yaw_static_friction_ * 0.8; // Kinetic < static typically
-		f_friction_yaw = -sign(yaw_d_) * coulomb_friction - sign(yaw_d_) * std::pow(std::abs(yaw_d_), 2) * yaw_quadratic_friction_k_;
-	}
-
-	// DEBUG: Print yaw dynamics (only when stick is used or velocity is significant)
-	if (std::abs(yaw_torque_) > 0.1 || std::abs(yaw_d_) > 0.01) {
-		std::cout << "YAW DEBUG: torque=" << yaw_torque_ 
-		          << ", vel=" << yaw_d_ 
-		          << ", f_friction=" << f_friction_yaw 
-		          << ", total_force=" << (yaw_torque_ + f_friction_yaw)
-		          << ", accel=" << (yaw_torque_ + f_friction_yaw) / yaw_inertia_ << std::endl;
+		f_friction_yaw = -sign(yaw_d_) * coulomb_friction - sign(yaw_d_) * std::pow(std::abs(yaw_d_), 2) * yaw_2nd_friction_k_;
 	}
 
 	// Compute & Update instant yaw angular acceleration

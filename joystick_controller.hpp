@@ -42,25 +42,29 @@ class JoystickController : public QObject
 		float xdd_;               // acceleration of the robot, [m/s^2]
 		float xd_;                // velocity of the robot, [m/s]
 		// Roll
-		float roll_max_torque_;        // maximum torque around roll axis [N*m]
-		float roll_inertia_;           // moment of inertia of roll axis [kg*m^2]		
+		float roll_max_torque_;        // maximum torque around roll axis [N*m]		
 		float roll_torque_;            // torque applied to roll [N*m]
-		float roll_dd_;                // angular acceleration around roll axis [rad/s^2]
-		float roll_d_;                 // angular velocity around roll axis [rad/s]
+		float roll_inertia_;           // moment of inertia of roll axis [kg*m^2]
 		float roll_static_friction_;   // static friction for roll [N*m]
-		float roll_2nd_friction_k_;    // dynamic roll friction parameter [N*m/(rad/s)^2]
+		float roll_2nd_friction_k_;    // dynamic friction parameter [N*m/(rad/s)^2]			
+		float roll_dd_;                // angular acceleration around roll axis [rad/s^2]
+		float roll_d_;                 // angular velocity around roll axis [rad/s]		
 		// Pitch
-		float pitch_max_torque_;       // maximum torque around local y-axis [N*m]
-		float pitch_inertia_;          // moment of inertia of pitch axis [kg*m^2]		
+		float pitch_max_torque_;       // maximum torque around pitch axis [N*m]
 		float pitch_torque_;           // pitch torque [N*m]
+		float pitch_inertia_;          // moment of inertia of pitch axis [kg*m^2]		
 		float pitch_dd_;               // pitch angular acceleration [rad/s^2]
 		float pitch_d_;                // pitch angular velocity [rad/s]
 		float pitch_static_friction_;  // static pitch friction [N*m]
 		float pitch_2nd_friction_k_;   // dynamic pitch friction parameter [N*m/(rad/s)^2]
 		// Yaw
-		float yaw_torque_;        // yaw torque, [N*m]
-		float yaw_dd_;            // yaw angular acceleration, [rad/s^2]
-		float yaw_d_;             // yaw angular velocity, [rad/s]
+		float yaw_max_torque_;         // maximum torque around yaw axis [N*m]
+		float yaw_torque_;             // yaw torque [N*m]
+		float yaw_inertia_;            // moment of inertia of yaw [kg*m^2]		
+		float yaw_static_friction_;    // static yaw friction [N*m]
+		float yaw_2nd_friction_k_;     // dynamic yaw friction parameter [N*m/(rad/s)^2]		
+		float yaw_dd_;                 // yaw angular acceleration [rad/s^2]
+		float yaw_d_;                  // yaw angular velocity [rad/s]
 
 		// --- Parameters ---
 		// @note: the object to be controlled is modeled as a rod stick, with longitudinal axis being the roll axis.
@@ -70,12 +74,9 @@ class JoystickController : public QObject
 		float max_thrust_;        // [N]
 		float static_drag_;       // static friction, [N]
 		float quadratic_drag_k_;  // dynamic friction parameter, [N/(m/s)^2]
-		float yaw_inertia_;       // moment of inertia around yaw axis (transverse), [kg*m^2]
+		
 		float static_friction_;   // static friction, [N]
 		float quadratic_friction_k_; // dynamic friction parameter, [N/(m/s)^2]
-		float max_yaw_torque_;    // maximum torque around local z-axis, [N*m]
-		float yaw_static_friction_;   // static yaw friction, [N*m]
-		float yaw_quadratic_friction_k_; // dynamic yaw friction parameter, [N*m/(rad/s)^2]
 		float dt_;                // time step for the physics model, [s]
 
 		// ---- ROS ----
