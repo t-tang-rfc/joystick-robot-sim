@@ -53,14 +53,16 @@ class JoystickController : public QObject
 		float pitch_rate_;        // angular velocity, [rad/s]
 
 		// --- Parameters ---
-		// @note: the object to be controlled is modeled as a rod stick, with diameter 40 cm and length 160 cm (the unit [cm] is chosen to be compatible with Qt Quick 3D)
+		// @note: the object to be controlled is modeled as a rod stick, with longitudinal axis being the roll axis.
 		float mode_volume_;       // [cm^3]
 		float mode_density_;      // [g/cm^3]
 		float mode_mass_;         // [kg]
 		float max_thrust_;        // [N]
 		float static_drag_;       // static friction, [N]
 		float quadratic_drag_k_;  // dynamic friction parameter, [N/(m/s)^2]
-		float model_inertia_;     // moment of inertia, [kg*m^2]
+		float roll_inertia_;      // moment of inertia around roll axis (longitudinal), [kg*m^2]
+		float pitch_inertia_;     // moment of inertia around pitch axis (transverse), [kg*m^2]
+		float yaw_inertia_;       // moment of inertia around yaw axis (transverse), [kg*m^2]
 		float max_roll_torque_;   // maximum torque around local x-axis, [N*m]
 		float static_friction_;   // static friction, [N]
 		float quadratic_friction_k_; // dynamic friction parameter, [N/(m/s)^2]
