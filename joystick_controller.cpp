@@ -36,12 +36,16 @@ JoystickController::JoystickController(QObject* parent)
 	, yaw_dd_(0.0)
 	, yaw_d_(0.0)
 	, yaw_inertia_(1.0)
+	, pitch_max_torque_(5.0)	
+	, pitch_inertia_(1.0)
+	, pitch_torque_(0.0)
+	, pitch_dd_(0.0)
+	, pitch_d_(0.0)
+	, pitch_static_friction_(2.0)
+	, pitch_2nd_friction_k_(1.0)	
 	, roll_max_torque_(3.0)
 	, roll_static_friction_(2.0)
 	, roll_2nd_friction_k_(0.8)   // 2nd order dynamic friction factor
-	, pitch_ref_(0.0) // Initialize pitch reference
-	, pitch_(0.0) // Initialize pitch angle
-	, pitch_rate_(0.0) // Initialize pitch rate
 	, mode_volume_(M_PI * (20.0 * 20.0) * 160.0) // V = π * r^2 * h, r = 20 cm, h = 160 cm
 	, mode_density_(0.01) // Density in g/cm^3
 	, mode_mass_(mode_volume_ * mode_density_ * 0.001) // Convert to kg
@@ -49,34 +53,14 @@ JoystickController::JoystickController(QObject* parent)
 	, static_drag_(4.0)
 	, quadratic_drag_k_(0.5)
 	, roll_inertia_(0.5) // Roll inertia: still smaller than yaw but more reasonable
-	, pitch_inertia_(1.2)
 	, max_yaw_torque_(5.0)
 	, yaw_static_friction_(2.0)
 	, yaw_quadratic_friction_k_(1.0)
-	, pitch_Kp_(4.0)
-	, pitch_Kd_(-0.3)
-	, max_pitch_rate_(2.0)
 	, dt_(1.0 / 50.0)
 	, nh_(ros::NodeHandle())
 	, joy_sub_(nh_.subscribe("joy", 10, &JoystickController::joyCallback, this))
 	, ctrl_timer_(nh_.createTimer(ros::Duration(dt_), &JoystickController::updateModel, this))	
-{
-	// Print out parameters
-	std::cout << "Mode volume: " << mode_volume_ << " cm^3"
-			  << ", Density: " << mode_density_ << " g/cm^3"
-			  << ", Mass: " << mode_mass_ << " kg"
-			  << ", Max force: " << max_thrust_ << " N"
-			  << ", Static drag: " << static_drag_ << " N"
-			  << ", Quadratic drag k: " << quadratic_drag_k_ << " N/(m/s)^2"
-			  << ", Roll inertia: " << roll_inertia_ << " kg*m^2"
-			  << ", Max roll torque: " << roll_max_torque_ << " N*m"
-			  << ", Static friction: " << static_friction_ << " N*m"
-			  << ", Quadratic friction k: " << quadratic_friction_k_ << " N*m/(rad/s)^2"
-			  << ", Max yaw torque: " << max_yaw_torque_ << " N*m"
-			  << ", Yaw static friction: " << yaw_static_friction_ << " N*m"
-			  << ", Yaw quadratic friction k: " << yaw_quadratic_friction_k_ << " N*m/(rad/s)^2"
-			  << ", Pitch Kp: " << pitch_Kp_ << ", Pitch Kd: " << pitch_Kd_ << std::endl;
-}
+{}
 
 JoystickController::~JoystickController() = default;
 
@@ -99,14 +83,14 @@ void JoystickController::joyCallback(const sensor_msgs::Joy::ConstPtr& msg)
 	float roll_input = (left_bumper_val < 1 ? 1.0 : -1.0) * (1.0 - right_trigger_val) * 0.5;
 	roll_torque_ = roll_input * roll_max_torque_; // Roll torque, [N*m]
 
+	// [2] Pitch torque control: right bumper (pitch direction) + left trigger (torque amount)
+	float pitch_input = (right_bumper_val < 1 ? 1.0 : -1.0) * (1.0 - left_trigger_val) * 0.5;
+	pitch_torque_ = pitch_input * pitch_max_torque_; // Pitch torque, [N*m]
+
 	// [3] Yaw torque control: left stick horizontal
 	float yaw_input = deadzone(left_stick_hoz, 0.05);
 	yaw_torque_ = yaw_input * max_yaw_torque_; // Yaw torque, [N*m]	
 
-	// derive pitch reference from right stick vertical axis
-	// Map right stick vertical (-1.0 to 1.0) to pitch (-180° to +180°)
-	float right_stick_vertical = deadzone(right_stick_vet, 0.05);
-	pitch_ref_ = right_stick_vertical * M_PI / 2.0; // Scale to [-π/2, π/2] radians
 }
 
 void JoystickController::updateModel(const ros::TimerEvent& event)
@@ -176,6 +160,45 @@ void JoystickController::updateModel(const ros::TimerEvent& event)
 	// Compute & Update instant angular acceleration
 	roll_dd_ = (roll_torque_ + roll_friction) / roll_inertia_; // [rad/s^2] - using roll inertia
 
+	// [5] Update pitch dynamics (physics-based model)
+	
+	// Compute current pitch angular velocity by the *last* angular acceleration
+	float pitch_vel = pitch_d_ + pitch_dd_ * dt_; // [rad/s]
+	// Update pitch angular velocity
+	pitch_d_ = pitch_vel;
+
+	// Compute friction forces (corrected physics with numerical stability)
+	float friction_pitch = 0.0f;	
+	if (std::abs(pitch_d_) < ROT_VEL_THRESH && std::abs(pitch_torque_) < pitch_static_friction_) {
+		// Static friction region: opposes applied torque and damps velocity
+		friction_pitch = clamp(-pitch_torque_, -pitch_static_friction_, pitch_static_friction_);
+		// Add velocity damping to eliminate numerical oscillations
+		friction_pitch -= pitch_d_ * (pitch_static_friction_ / ROT_VEL_THRESH); // Strong damping near zero
+		
+		// If the total force would cause velocity to overshoot zero, clamp it
+		float predicted_pitch_vel = pitch_d_ + (pitch_torque_ + friction_pitch) / pitch_inertia_ * dt_;
+		if (pitch_d_ * predicted_pitch_vel < 0) { // Velocity would change sign
+			// Apply exact force needed to bring velocity to zero
+			friction_pitch = -pitch_torque_ - pitch_d_ * pitch_inertia_ / dt_;
+		}
+	} else {
+		// Kinetic friction: always opposes motion, magnitude depends on velocity
+		float coulomb_friction = pitch_static_friction_ * 0.8; // Kinetic < static typically
+		friction_pitch = -sign(pitch_d_) * coulomb_friction - sign(pitch_d_) * std::pow(std::abs(pitch_d_), 2) * pitch_2nd_friction_k_;
+	}
+
+	// DEBUG: Print pitch dynamics (only when stick is used or velocity is significant)
+	if (std::abs(pitch_torque_) > 0.1 || std::abs(pitch_d_) > 0.01) {
+		std::cout << "PITCH DEBUG: torque=" << pitch_torque_ 
+		          << ", vel=" << pitch_d_ 
+		          << ", f_friction=" << friction_pitch 
+		          << ", total_force=" << (pitch_torque_ + friction_pitch)
+		          << ", accel=" << (pitch_torque_ + friction_pitch) / pitch_inertia_ << std::endl;
+	}
+
+	// Compute & Update instant pitch angular acceleration
+	pitch_dd_ = (pitch_torque_ + friction_pitch) / pitch_inertia_; // [rad/s^2] - using pitch inertia	
+
 	// [3] Update yaw dynamics (physics-based model)
 	
 	// Compute current yaw angular velocity by the *last* angular acceleration
@@ -215,23 +238,13 @@ void JoystickController::updateModel(const ros::TimerEvent& event)
 	// Compute & Update instant yaw angular acceleration
 	yaw_dd_ = (yaw_torque_ + f_friction_yaw) / yaw_inertia_;
 
-	// [5] Update pitch rate (attitude control)
-	float pitch_diff = pitch_ref_ - pitch_;
-	while (pitch_diff > M_PI) pitch_diff -= 2 * M_PI; // Normalize to [-π, π]
-	while (pitch_diff < -M_PI) pitch_diff += 2 * M_PI;
-
-	float pitch_cmd_rate = clamp(pitch_Kp_ * pitch_diff + pitch_Kd_ * pitch_rate_, -max_pitch_rate_, max_pitch_rate_);
-	pitch_ += pitch_cmd_rate * dt_; // Update pitch, [rad]
-	pitch_rate_ = pitch_cmd_rate;   // Update pitch rate, [rad/s]
-
 	// 6a) Translate along local +X by velocity increment (not absolute position!)
 	// float delta_x = xd_ * dt_; // Incremental displacement this timestep
 	// step(0, 3) = delta_x;
-	pitch_rate_ = 0;
 	// 6b) Apply incremental rotations (using angular velocities, not absolute angles)
-	float delta_roll = roll_d_ * dt_;     // Incremental roll rotation
-	float delta_pitch = pitch_rate_ * dt_; // Incremental pitch rotation
-	float delta_yaw = yaw_d_ * dt_;      // Incremental yaw rotation (physics-based)	
+	float delta_roll = roll_d_ * dt_;     // Incremental roll rotation (physics-based)
+	float delta_pitch = pitch_d_ * dt_;   // Incremental pitch rotation (physics-based)
+	float delta_yaw = yaw_d_ * dt_;       // Incremental yaw rotation (physics-based)	
 
 	// Create rotation matrices for each axis
 	Eigen::Matrix3f R_roll = Eigen::AngleAxisf(delta_roll, Eigen::Vector3f::UnitX()).toRotationMatrix();
@@ -240,7 +253,7 @@ void JoystickController::updateModel(const ros::TimerEvent& event)
 
 	// Combine rotations (order: yaw * pitch * roll for proper composition)
 	Eigen::Matrix3f R_combined = R_yaw * R_pitch * R_roll;
-	step.block<3,3>(0, 0) = R_roll;
+	step.block<3,3>(0, 0) = R_pitch;
 
 	// [7] Emit the instantaneous transformation to the delegate, will handle pose accumulation
 	Q_EMIT applyTransform(step);
