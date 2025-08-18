@@ -12,6 +12,7 @@
 #define MAIN_WINDOW_HPP
 
 #include <QQuickView>
+#include <QKeyEvent>
 #include <eigen3/Eigen/Dense>
 #include <eigen3/Eigen/Geometry>
 
@@ -26,6 +27,7 @@ class MainWindow : public QQuickView
 		~MainWindow();
 
 		Q_SIGNAL void applyTransform(Eigen::Matrix4f transform); // Signal-relay, to RobotControllerDelegate
+		Q_SIGNAL void resetPose(); // Signal to reset robot pose
 
 	protected:
 		void keyPressEvent(QKeyEvent* event) override;

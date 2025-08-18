@@ -14,14 +14,12 @@ namespace rf {
 
 RobotControllerDelegate::RobotControllerDelegate(QObject *parent)
 	: QObject(parent)
+	, pose_(Eigen::Matrix4f::Identity())
 	, t_(0.0f, 0.0f, 0.0f)       // fill dummy value
 	, q_(1.0f, 0.0f, 0.0f, 0.0f) // fill dummy value
 {
-	// Initialize the transformation matrix with default pose (explicitly)
-	pose_ << 1.0f, 0.0f, 0.0f, -100.0f,
-			 0.0f, 1.0f, 0.0f, 100.0f,
-			 0.0f, 0.0f, 1.0f, -100.0f,
-			 0.0f, 0.0f, 0.0f, 1.0f;
+	// Initialize the transformation matrix with default pose
+	resetPose();
 	// Trigger initial pose update
 	updateDisplayPose();
 }
@@ -71,6 +69,18 @@ void RobotControllerDelegate::updateDisplayPose()
 	if (translationChanged || rotationChanged) {
 		Q_EMIT poseChanged();
 	}
+}
+
+void RobotControllerDelegate::resetPose()
+{
+	// Reset to initial pose
+	pose_ << 1.0f, 0.0f, 0.0f, -100.0f,
+			 0.0f, 1.0f, 0.0f, 100.0f,
+			 0.0f, 0.0f, 1.0f, -100.0f,
+			 0.0f, 0.0f, 0.0f, 1.0f;
+	
+	// Update display pose
+	updateDisplayPose();
 }
 
 } // namespace rf

@@ -43,6 +43,8 @@ class RobotControllerDelegate : public QObject
 
 		Q_SLOT void applyTransform(const Eigen::Matrix4f& transform);
 
+		Q_SLOT void resetPose();
+
 		Q_SIGNAL void poseChanged();
 
 	private:

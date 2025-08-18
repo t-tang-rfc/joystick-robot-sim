@@ -12,6 +12,7 @@
 
 #include <QQuickItem>
 #include <QtLogging>
+#include <QDebug>
 
 #include "robot_controller_delegate.hpp"
 
@@ -39,6 +40,7 @@ MainWindow::MainWindow(QWindow* parent) : QQuickView(parent)
 	if (controller_delegate) {
 		// Connect signals to controller slots
 		connect(this, &MainWindow::applyTransform, controller_delegate, &RobotControllerDelegate::applyTransform);
+		connect(this, &MainWindow::resetPose, controller_delegate, &RobotControllerDelegate::resetPose);
 	} else {
 		qWarning() << "Controller delegate not retrieved from QML. You will NOT be able to control the robot.";
 	}
@@ -49,7 +51,10 @@ MainWindow::~MainWindow() = default;
 void MainWindow::keyPressEvent(QKeyEvent* event)
 {
 	switch (event->key()) {
-		// @todo: May add reset function later, for now print a message
+		case Qt::Key_C:
+			qDebug() << "Resetting robot pose to initial position";
+			Q_EMIT resetPose();
+			break;
 		default:
 			qDebug() << "Key pressed:" << event->key();
 			QQuickView::keyPressEvent(event);
