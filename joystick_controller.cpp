@@ -9,7 +9,7 @@
  * All joystick control logic is implemented here.
  * This class sends pose information to the GUI thread for rendering.
  * 
- * @date: [created: 2025-06-06, updated: 2025-07-30]
+ * @date: [created: 2025-06-06, updated: 2025-08-18]
  **/
 
 #include "joystick_controller.hpp"
@@ -28,12 +28,15 @@ JoystickController::JoystickController(QObject* parent)
 	, rdd_(0.0) // Initialize roll angular acceleration
 	, rd_(0.0) // Initialize roll angular velocity
 	, r_(0.0) // Initialize roll angle
+	, yaw_torque_(0.0) // Initialize yaw torque
+	, ydd_(0.0) // Initialize yaw angular acceleration
+	, yd_(0.0) // Initialize yaw angular velocity
+	, y_(0.0) // Initialize yaw angle
 	, pitch_ref_(0.0) // Initialize pitch reference
 	, pitch_(0.0) // Initialize pitch angle
 	, pitch_rate_(0.0) // Initialize pitch rate
 	, yaw_(0.0)
 	, yaw_rate_(0.0)
-	, transform_()
 	, robot_pose_({0, 0, 0, 0, 0, 0}) // Initialize robot pose to zero
 	, mode_volume_(M_PI * (20.0 * 20.0) * 160.0) // V = π * r^2 * h, r = 20 cm, h = 160 cm
 	, mode_density_(0.01) // Density in g/cm^3
@@ -45,6 +48,9 @@ JoystickController::JoystickController(QObject* parent)
 	, max_roll_torque_(5.0) // Maximum roll torque, [N*m]
 	, static_friction_(2.0) // Static rotational friction, [N*m]
 	, quadratic_friction_k_(0.3) // Dynamic rotational friction parameter, [N*m/(rad/s)^2]
+	, max_yaw_torque_(5.0) // Maximum yaw torque, [N*m]
+	, yaw_static_friction_(2.0) // Static yaw friction, [N*m]
+	, yaw_quadratic_friction_k_(0.3) // Dynamic yaw friction parameter, [N*m/(rad/s)^2]
 	, yaw_Kp_(4.0)
 	, yaw_Kd_(-0.3)
 	, max_yaw_rate_(2.0)
@@ -67,13 +73,15 @@ JoystickController::JoystickController(QObject* parent)
 			  << ", Max roll torque: " << max_roll_torque_ << " N*m"
 			  << ", Static friction: " << static_friction_ << " N*m"
 			  << ", Quadratic friction k: " << quadratic_friction_k_ << " N*m/(rad/s)^2"
+			  << ", Max yaw torque: " << max_yaw_torque_ << " N*m"
+			  << ", Yaw static friction: " << yaw_static_friction_ << " N*m"
+			  << ", Yaw quadratic friction k: " << yaw_quadratic_friction_k_ << " N*m/(rad/s)^2"
 			  << ", Yaw Kp: " << yaw_Kp_ << ", Yaw Kd: " << yaw_Kd_
 			  << ", Pitch Kp: " << pitch_Kp_ << ", Pitch Kd: " << pitch_Kd_ << std::endl;
 
 	// Check std::atan2(0.0, 0.0) behavior
 	float test_yaw = std::atan2(0.0, 0.0);
 	std::cout << "atan2(0.0, 0.0) = " << test_yaw << " (should be 0.0)" << std::endl;
-	transform_.setToIdentity();
 }
 
 JoystickController::~JoystickController() = default;
@@ -97,10 +105,14 @@ void JoystickController::joyCallback(const sensor_msgs::Joy::ConstPtr& msg)
 	float roll_throttle = (left_bumper_val < 1 ? 1.0 : -1.0) * (1.0 - right_trigger_val) * 0.5;
 	torque_ = roll_throttle * max_roll_torque_; // Roll torque, [N*m]
 
+	// Yaw torque control: left stick horizontal (positive = counter-clockwise around Z-axis)
+	float yaw_input = deadzone(left_stick_hoz, 0.05);
+	yaw_torque_ = yaw_input * max_yaw_torque_; // Yaw torque, [N*m]
+
 	float ux = deadzone(left_stick_hoz, 0.05);
 	float uz = deadzone(left_stick_vet, 0.05);
 	
-	// @note: atan2(0.0, 0.0) return 0.0, which is the desired behavior here
+	// @note: Keep yaw_ref_ for compatibility, but it's no longer used in physics model
 	yaw_ref_ = std::atan2(ux, uz); // [rad]
 	// std::cout << "ux=" << ux << ", uz=" << uz
 	//           << ", yaw_ref=" << yaw_ref_ * 180.0 / M_PI << " degrees" << std::endl;
@@ -152,14 +164,30 @@ void JoystickController::updateModel(const ros::TimerEvent& event)
 	// Compute & Update instant angular acceleration
 	rdd_ = (torque_ + f_static_rot + f_dynamic_rot) / model_inertia_; // [rad/s^2]
 
-	// [4] Update yaw rate (attitude control)
-	float yaw_diff = yaw_ref_ - yaw_;
-	while (yaw_diff > M_PI) yaw_diff -= 2 * M_PI; // Normalize to [-π, π]
-	while (yaw_diff < -M_PI) yaw_diff += 2 * M_PI;
+	// [3.5] Update yaw dynamics (physics-based model)
+	
+	// Compute current yaw angular velocity by the *last* angular acceleration
+	float ang_vel_y = yd_ + ydd_ * dt_; // [rad/s]
+	// Update yaw angular velocity
+	yd_ = ang_vel_y;
 
-	float yaw_cmd_rate = clamp(yaw_Kp_ * yaw_diff + yaw_Kd_ * yaw_rate_, -max_yaw_rate_, max_yaw_rate_);
-	yaw_ += yaw_cmd_rate * dt_; // Update yaw, [rad]
-	yaw_rate_ = yaw_cmd_rate;   // Update yaw rate, [rad/s]
+	// Compute static yaw rotational friction
+	float f_static_yaw = (sign(yd_) == 0.0) ? clamp(-yaw_torque_, -yaw_static_friction_, yaw_static_friction_) : (-sign(yd_) * yaw_static_friction_);
+
+	// Compute dynamic yaw rotational friction
+	float f_dynamic_yaw = -sign(yd_) * (std::pow(std::abs(yd_), 2) * yaw_quadratic_friction_k_);
+
+	// Compute & Update instant yaw angular acceleration
+	ydd_ = (yaw_torque_ + f_static_yaw + f_dynamic_yaw) / model_inertia_; // [rad/s^2]
+
+	// [4] Update yaw rate (attitude control) - COMMENTED OUT: Now using physics-based yaw control
+	// float yaw_diff = yaw_ref_ - yaw_;
+	// while (yaw_diff > M_PI) yaw_diff -= 2 * M_PI; // Normalize to [-π, π]
+	// while (yaw_diff < -M_PI) yaw_diff += 2 * M_PI;
+
+	// float yaw_cmd_rate = clamp(yaw_Kp_ * yaw_diff + yaw_Kd_ * yaw_rate_, -max_yaw_rate_, max_yaw_rate_);
+	// yaw_ += yaw_cmd_rate * dt_; // Update yaw, [rad]
+	// yaw_rate_ = yaw_cmd_rate;   // Update yaw rate, [rad/s]
 
 	// [5] Update pitch rate (attitude control)
 	float pitch_diff = pitch_ref_ - pitch_;
@@ -171,53 +199,51 @@ void JoystickController::updateModel(const ros::TimerEvent& event)
 	pitch_rate_ = pitch_cmd_rate;   // Update pitch rate, [rad/s]
 
 	// [6] Build incremental transform for this timestep
-	QMatrix4x4 step;
-	step.setToIdentity();
+	Eigen::Matrix4f step = Eigen::Matrix4f::Identity();
 
 	// 6a) Translate along local +X by velocity increment (not absolute position!)
-	float delta_x = xd_ * dt_; // Incremental displacement this timestep
-	step.translate(delta_x, 0.0, 0.0);
+	// float delta_x = xd_ * dt_; // Incremental displacement this timestep
+	// step(0, 3) = delta_x;
 
 	// 6b) Apply incremental rotations (using angular velocities, not absolute angles)
 	float delta_roll = rd_ * dt_;     // Incremental roll rotation
-	float delta_yaw = yaw_rate_ * dt_; // Incremental yaw rotation  
+	float delta_yaw = yd_ * dt_;      // Incremental yaw rotation (physics-based)  
 	float delta_pitch = pitch_rate_ * dt_; // Incremental pitch rotation
 
-	//     - roll around X axis
-	step.rotate(qRadiansToDegrees(delta_roll), QVector3D(1,0,0));
-	//     - yaw around Y axis  
-	step.rotate(qRadiansToDegrees(delta_yaw), QVector3D(0,1,0));
-	//     - pitch around Z axis
-	step.rotate(qRadiansToDegrees(delta_pitch), QVector3D(0,0,1));
+	// Create rotation matrices for each axis
+	// Eigen::Matrix3f R_roll = Eigen::AngleAxisf(delta_roll, Eigen::Vector3f::UnitX()).toRotationMatrix();
+	Eigen::Matrix3f R_yaw = Eigen::AngleAxisf(delta_yaw, Eigen::Vector3f::UnitY()).toRotationMatrix();
+	// Eigen::Matrix3f R_pitch = Eigen::AngleAxisf(delta_pitch, Eigen::Vector3f::UnitY()).toRotationMatrix();
 
-	// 6c) Accumulate into world transform (this gives us proper 6-DOF composition)
-	transform_ = transform_ * step;
+	// Combine rotations (order: yaw * pitch * roll for proper composition)
+	// Eigen::Matrix3f R_combined = R_yaw * R_pitch * R_roll;
+	step.block<3,3>(0, 0) = R_yaw;
 
-	// [6] Decompose world transform → translation + Euler angles
-	// Extract translation from the transform matrix
-	QVector3D t = transform_.column(3).toVector3D();
-	double world_x = t.x();
-	double world_y = t.y();
-	double world_z = t.z();
+	// [7] For now, we'll emit the instantaneous transformation to the delegate
+	// The delegate will handle pose accumulation using its own Eigen::Matrix4f
+	
+	// @todo: Replace with signal to RobotControllerDelegate::applyTransform(step)
+	// For now, keep the old interface by decomposing step matrix to pose values
+	
+	// Extract translation from step matrix (just the incremental displacement)
+	// float step_x = step(0, 3);
+	// float step_y = step(1, 3);  
+	// float step_z = step(2, 3);
 
-	// Extract orientation as quaternion → Euler (roll, pitch, yaw)
-	QMatrix3x3 rotMat;
-	for (int i = 0; i < 3; ++i)
-		for (int j = 0; j < 3; ++j)
-			rotMat(i, j) = transform_(i, j);
-	QQuaternion q = QQuaternion::fromRotationMatrix(rotMat);
-	// Note: Qt's toEulerAngles() returns (x=roll, y=pitch, z=yaw) in degrees
-	QVector3D euler = q.toEulerAngles();
+	// // Extract rotation as quaternion from step matrix
+	// Eigen::Quaternionf q_step(R_combined);
+	// // Convert to Euler angles for the old interface
+	// Eigen::Vector3f euler_step = q_step.toRotationMatrix().eulerAngles(0, 1, 2); // roll, pitch, yaw
 
-	// [7] Populate robot_pose_ for Qt renderer (positions in cm, angles in degrees)
-	robot_pose_[0] = world_x * 100.0;  // World X position, convert to cm
-	robot_pose_[1] = world_y * 100.0;  // World Y position, convert to cm
-	robot_pose_[2] = world_z * 100.0;  // World Z position, convert to cm
-	robot_pose_[3] = euler.x();        // Roll angle in degrees
-	robot_pose_[4] = euler.y();        // Pitch angle in degrees
-	robot_pose_[5] = euler.z();        // Yaw angle in degrees
+	// // [8] Populate robot_pose_ with incremental values (positions in cm, angles in degrees)
+	// robot_pose_[0] = step_x * 100.0;  // Incremental X displacement, convert to cm
+	// robot_pose_[1] = step_y * 100.0;  // Incremental Y displacement, convert to cm
+	// robot_pose_[2] = step_z * 100.0;  // Incremental Z displacement, convert to cm
+	// robot_pose_[3] = euler_step.x() * 180.0 / M_PI;  // Roll angle in degrees
+	// robot_pose_[4] = euler_step.y() * 180.0 / M_PI;  // Pitch angle in degrees
+	// robot_pose_[5] = euler_step.z() * 180.0 / M_PI;  // Yaw angle in degrees
 
-	Q_EMIT setPose(robot_pose_);
+	Q_EMIT applyTransform(step);
 }
 
 } // namespace rf

@@ -5,7 +5,7 @@
  * 
  * @author: t-tang-rfc
  * 
- * @date: [created: 2025-05-22, updated: 2025-08-17]
+ * @date: [created: 2025-05-22, updated: 2025-08-18]
  **/
 
 #include "main_window.hpp"
@@ -37,9 +37,8 @@ MainWindow::MainWindow(QWindow* parent) : QQuickView(parent)
 	// Retrieve the controller delegate from the QML
 	auto controller_delegate = rootObject()->findChild<RobotControllerDelegate*>("controller");
 	if (controller_delegate) {
-
 		// Connect signals to controller slots
-		// connect(this, &MainWindow::setPose, controller_delegate, &RobotControllerDelegate::setPose);
+		connect(this, &MainWindow::applyTransform, controller_delegate, &RobotControllerDelegate::applyTransform);
 	} else {
 		qWarning() << "Controller delegate not retrieved from QML. You will NOT be able to control the robot.";
 	}

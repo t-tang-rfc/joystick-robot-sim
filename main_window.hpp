@@ -5,15 +5,15 @@
  * 
  * @author: t-tang-rfc
  *
- * @date: [created: 2025-05-22, updated: 2025-08-17]
+ * @date: [created: 2025-05-22, updated: 2025-08-18]
  **/
 
 #ifndef MAIN_WINDOW_HPP
 #define MAIN_WINDOW_HPP
 
 #include <QQuickView>
-#include <QtGlobal>
-#include <QList>
+#include <eigen3/Eigen/Dense>
+#include <eigen3/Eigen/Geometry>
 
 namespace rf {
 
@@ -25,7 +25,7 @@ class MainWindow : public QQuickView
 		explicit MainWindow(QWindow* parent = nullptr);
 		~MainWindow();
 
-		Q_SIGNAL void setPose(QList<float> pose); // Signal-relay, to RobotControllerDelegate
+		Q_SIGNAL void applyTransform(Eigen::Matrix4f transform); // Signal-relay, to RobotControllerDelegate
 
 	protected:
 		void keyPressEvent(QKeyEvent* event) override;

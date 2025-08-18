@@ -41,7 +41,7 @@ class RobotControllerDelegate : public QObject
 		QVector3D getTranslation() const;
 		QQuaternion getRotation() const;
 
-		void applyTransform(const Eigen::Matrix4f& transform);
+		Q_SLOT void applyTransform(const Eigen::Matrix4f& transform);
 
 		Q_SIGNAL void poseChanged();
 

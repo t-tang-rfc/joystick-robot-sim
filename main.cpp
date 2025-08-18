@@ -1,12 +1,17 @@
 #include <QGuiApplication>
 #include <QFutureWatcher>
-#include <QtConcurrent>
+#include <QtConcurrent/QtConcurrentRun>
+#include <QMetaType>
+#include <eigen3/Eigen/Dense>
 
 #include "main_window.hpp"
 #include "joystick_controller.hpp"
 
 int main(int argc, char *argv[])
 {
+	// --- [0] Register Eigen types with Qt's meta type system for signal-slot usage ---
+	qRegisterMetaType<Eigen::Matrix4f>("Eigen::Matrix4f");
+
 	// --- [1] Initialize ROS node ---
 	ros::init(argc, argv, "simulation_node");
 
@@ -26,8 +31,8 @@ int main(int argc, char *argv[])
 	QObject::connect(&rosThread, &QFutureWatcher<void>::finished,
 		&app, &QCoreApplication::quit);
 	QObject::connect(&app, &QCoreApplication::aboutToQuit, []() { ros::shutdown(); });
-	QObject::connect(&joystick_controller, &rf::JoystickController::setPose,
-		&w, &rf::MainWindow::setPose, Qt::QueuedConnection);
+	QObject::connect(&joystick_controller, &rf::JoystickController::applyTransform,
+		&w, &rf::MainWindow::applyTransform, Qt::QueuedConnection);
 
 	// --- [6] Show MainWindow scene ---
 	w.showFullScreen();

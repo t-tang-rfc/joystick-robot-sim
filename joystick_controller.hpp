@@ -16,7 +16,7 @@
  * - The controller class should have the FULL model of the object to be controlled.
  * - It is the core of the robot simulation, and it is *physics driven*.
  * 
- * @date: [created: 2025-06-06, updated: 2025-07-30]
+ * @date: [created: 2025-06-06, updated: 2025-08-18]
  **/
 
 #ifndef JOYSTICK_CONTROLLER_HPP
@@ -28,6 +28,8 @@
 #include <QMatrix4x4>
 #include <ros/ros.h>
 #include <sensor_msgs/Joy.h>
+#include <eigen3/Eigen/Dense>
+#include <eigen3/Eigen/Geometry>
 #include <algorithm>
 
 namespace rf {
@@ -40,7 +42,7 @@ class JoystickController : public QObject
 		explicit JoystickController(QObject* parent = nullptr);
 		~JoystickController();
 
-		Q_SIGNAL void setPose(QList<float> pose);
+		Q_SIGNAL void applyTransform(Eigen::Matrix4f transform);
 
 	private:
 		// ---- State ----
@@ -52,14 +54,16 @@ class JoystickController : public QObject
 		float rdd_;               // angular acceleration around local x-axis, [rad/s^2]
 		float rd_;                // angular velocity around local x-axis, [rad/s]
 		float r_;                 // roll angle, [rad]
+		float yaw_torque_;        // torque applied to yaw, [N*m]
+		float ydd_;               // angular acceleration around local z-axis, [rad/s^2]
+		float yd_;                // angular velocity around local z-axis, [rad/s]
+		float y_;                 // yaw angle, [rad]
 		float pitch_ref_;         // target pitch angle, [rad]
 		float pitch_;             // current pitch angle, [rad]
 		float pitch_rate_;        // angular velocity, [rad/s]
-		float yaw_ref_;           // target heading direction, [rad]
-		float yaw_;               // heading direction, [rad]
-		float yaw_rate_;          // angular velocity, [rad/s]
-
-		QMatrix4x4 transform_;
+		float yaw_ref_;           // target heading direction, [rad] (kept for compatibility)
+		float yaw_;               // heading direction, [rad] (kept for compatibility)
+		float yaw_rate_;          // angular velocity, [rad/s] (kept for compatibility)
 
 		QList<float> robot_pose_; // (x, y, z, roll, pitch, yaw) in [cm] and [degrees]
 
@@ -75,6 +79,9 @@ class JoystickController : public QObject
 		float max_roll_torque_;   // maximum torque around local x-axis, [N*m]
 		float static_friction_;   // static friction, [N]
 		float quadratic_friction_k_; // dynamic friction parameter, [N/(m/s)^2]
+		float max_yaw_torque_;    // maximum torque around local z-axis, [N*m]
+		float yaw_static_friction_;   // static yaw friction, [N*m]
+		float yaw_quadratic_friction_k_; // dynamic yaw friction parameter, [N*m/(rad/s)^2]
 		float yaw_Kp_;            // proportional gain for yaw control, [rad/(rad/s)]
 		float yaw_Kd_;            // derivative gain for yaw control, [rad/(rad/s)^2]
 		float max_yaw_rate_;      // maximum yaw rate, [rad/s]
